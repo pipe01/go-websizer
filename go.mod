@@ -1,4 +1,4 @@
-module github.com/pipe01/go-websize
+module github.com/pipe01/go-websizer
 
 go 1.16
 
