@@ -21,7 +21,7 @@ Usage of go-websizer:
   -quiet
         if true, only errors will be printed
   -size value
-        comma-separated list of heights (default 480,720,1080)
+        comma-separated list of size-format (default 480-webp,720-webp,1080-webp)
 ```
 
 ### Examples
@@ -30,5 +30,5 @@ Usage of go-websizer:
 go-websizer image1.jpg image2.jpg
 ```
 ```
-go-websizer -size 480,720 image*.jpg
+go-websizer -size 480-webp,720-png image*.jpg
 ```
