@@ -5,6 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"image/jpeg"
+	"image/png"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -25,21 +28,23 @@ var (
 	parallel = flag.Int64("parallel", int64(runtime.NumCPU()), "maximum number of images to process in parallel")
 	quiet    = flag.Bool("quiet", false, "if true, only errors will be printed")
 
-	sizes = []int{480, 720, 1080}
+	sizes = []Size{{480, defaultFormat}, {720, defaultFormat}, {1080, defaultFormat}}
 )
 
+const defaultFormat = "webp"
+
 func main() {
-	flag.Func("size", "comma-separated list of heights (default 480,720,1080)", func(s string) error {
+	flag.Func("size", "comma-separated list of size-format (default 480-webp,720-webp,1080-webp)", func(s string) error {
 		parts := strings.Split(s, ",")
-		sizes = make([]int, len(parts))
+		sizes = make([]Size, len(parts))
 
 		for i, p := range parts {
-			n, err := strconv.Atoi(p)
+			s, err := parseSize(p)
 			if err != nil {
-				return fmt.Errorf("parse %s: %w", p, err)
+				return err
 			}
 
-			sizes[i] = n
+			sizes[i] = s
 		}
 
 		return nil
@@ -101,17 +106,17 @@ func process(path string) error {
 		var newpath string
 
 		if !*quiet {
-			log.Printf("resizing image %s with size %d", path, size)
+			log.Printf("resizing image %s with size %d", path, size.Height)
 		}
 
-		if size == 0 {
+		if size.Height == 0 {
 			newimg = img
-			newpath = fmt.Sprintf("%s.webp", strings.TrimSuffix(path, filepath.Ext(path)))
+			newpath = fmt.Sprintf("%s.%s", strings.TrimSuffix(path, filepath.Ext(path)), size.Format)
 		} else {
-			neww, newh := calcSize(w, h, size)
+			neww, newh := calcSize(w, h, size.Height)
 
 			newimg = imaging.Resize(img, neww, newh, imaging.Lanczos)
-			newpath = fmt.Sprintf("%s-%dp.webp", strings.TrimSuffix(path, filepath.Ext(path)), size)
+			newpath = fmt.Sprintf("%s-%dp.%s", strings.TrimSuffix(path, filepath.Ext(path)), size.Height, size.Format)
 		}
 
 		out, err := os.Create(newpath)
@@ -120,7 +125,7 @@ func process(path string) error {
 		}
 		defer out.Close() // Just in case
 
-		if err := webp.Encode(out, newimg, &webp.Options{Lossless: *lossless, Quality: float32(*quality)}); err != nil {
+		if err := encode(out, newimg, size.Format); err != nil {
 			return fmt.Errorf("encode file %s: %w", newpath, err)
 		}
 
@@ -132,4 +137,42 @@ func process(path string) error {
 
 func calcSize(w, h, newh int) (int, int) {
 	return int((float32(w) / float32(h)) * float32(newh)), newh
+}
+
+func encode(w io.Writer, img image.Image, format string) error {
+	switch format {
+	case "webp":
+		return webp.Encode(w, img, &webp.Options{Lossless: *lossless, Quality: float32(*quality)})
+	case "jpeg", "jpg":
+		return jpeg.Encode(w, img, &jpeg.Options{Quality: int(*quality)})
+	case "png":
+		return png.Encode(w, img)
+	}
+
+	return fmt.Errorf("unknown format %s", format)
+}
+
+type Size struct {
+	Height int
+	Format string
+}
+
+func parseSize(str string) (Size, error) {
+	dash := strings.IndexRune(str, '-')
+
+	if dash == -1 {
+		size, err := strconv.Atoi(str)
+		if err != nil {
+			return Size{}, fmt.Errorf("parse %s: %w", str, err)
+		}
+
+		return Size{size, defaultFormat}, nil
+	}
+
+	size, err := strconv.Atoi(str[:dash])
+	if err != nil {
+		return Size{}, fmt.Errorf("parse %s: %w", str[:dash], err)
+	}
+
+	return Size{Height: size, Format: str[dash+1:]}, nil
 }
