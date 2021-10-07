@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"image"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/chai2010/webp"
 	"github.com/disintegration/imaging"
+	"golang.org/x/sync/semaphore"
 )
 
 var (
@@ -84,12 +86,15 @@ func main() {
 	}
 
 	scanwg := sync.WaitGroup{}
+	sem := semaphore.NewWeighted(int64(*parallel))
 	for _, f := range files {
 		scanwg.Add(1)
 		go func(f string) {
+			sem.Acquire(context.Background(), 1)
 			if err := enqueue(f, &wg); err != nil {
 				log.Fatalf("failed to resize image: %s", err)
 			}
+			sem.Release(1)
 			scanwg.Done()
 		}(f)
 	}
