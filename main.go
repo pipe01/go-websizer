@@ -23,10 +23,11 @@ import (
 )
 
 var (
-	quality  = flag.Float64("quality", 80, "quality to use when encoding into webp")
-	lossless = flag.Bool("lossless", false, "whether to encode webp in lossless mode")
-	parallel = flag.Int64("parallel", int64(runtime.NumCPU()), "maximum number of images to process in parallel")
-	quiet    = flag.Bool("quiet", false, "if true, only errors will be printed")
+	quality   = flag.Float64("quality", 80, "quality to use when encoding into webp or jpeg")
+	lossless  = flag.Bool("lossless", false, "whether to encode webp in lossless mode")
+	parallel  = flag.Int64("parallel", int64(runtime.NumCPU()), "maximum number of images to process in parallel")
+	quiet     = flag.Bool("quiet", false, "if true, only errors will be printed")
+	outFolder = flag.String("outDir", "", "folder to store output files on, by default they will be stored besides the original file")
 
 	sizes = []Size{{480, defaultFormat}, {720, defaultFormat}, {1080, defaultFormat}}
 )
@@ -109,14 +110,22 @@ func process(path string) error {
 			log.Printf("resizing image %s with size %d", path, size.Height)
 		}
 
+		var dir string
+		if *outFolder == "" {
+			dir = filepath.Dir(path)
+		} else {
+			dir = *outFolder
+		}
+		base := filepath.Join(dir, strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
+
 		if size.Height == 0 {
 			newimg = img
-			newpath = fmt.Sprintf("%s.%s", strings.TrimSuffix(path, filepath.Ext(path)), size.Format)
+			newpath = fmt.Sprintf("%s.%s", base, size.Format)
 		} else {
 			neww, newh := calcSize(w, h, size.Height)
 
 			newimg = imaging.Resize(img, neww, newh, imaging.Lanczos)
-			newpath = fmt.Sprintf("%s-%dp.%s", strings.TrimSuffix(path, filepath.Ext(path)), size.Height, size.Format)
+			newpath = fmt.Sprintf("%s-%dp.%s", base, size.Height, size.Format)
 		}
 
 		out, err := os.Create(newpath)
