@@ -107,7 +107,7 @@ func process(path string) error {
 		var newpath string
 
 		if !*quiet {
-			log.Printf("resizing image %s with size %d", path, size.Height)
+			log.Printf("resizing image %s with size %d encoded to %s", path, size.Height, size.Format)
 		}
 
 		var dir string
