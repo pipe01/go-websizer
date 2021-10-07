@@ -183,6 +183,8 @@ func doJob(job *Job) error {
 		newimg = imaging.Resize(job.img, calcWidth(w, h, job.size.Height), job.size.Height, imaging.Lanczos)
 	}
 
+	os.MkdirAll(filepath.Dir(job.outPath), os.ModePerm)
+
 	out, err := os.Create(job.outPath)
 	if err != nil {
 		return fmt.Errorf("create file %s: %w", job.outPath, err)
