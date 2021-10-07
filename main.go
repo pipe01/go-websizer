@@ -28,7 +28,7 @@ var (
 	outFolder = flag.String("outDir", "", "folder to store output files on, by default they will be stored besides the original file")
 
 	sizes = []Size{{480, defaultFormat}, {720, defaultFormat}, {1080, defaultFormat}}
-	jobs  = make(chan *Job)
+	jobs  = make(chan *Job, 100)
 )
 
 type Job struct {
