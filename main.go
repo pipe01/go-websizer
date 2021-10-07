@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"image"
@@ -19,18 +18,25 @@ import (
 
 	"github.com/chai2010/webp"
 	"github.com/disintegration/imaging"
-	"golang.org/x/sync/semaphore"
 )
 
 var (
 	quality   = flag.Float64("quality", 80, "quality to use when encoding into webp or jpeg")
 	lossless  = flag.Bool("lossless", false, "whether to encode webp in lossless mode")
-	parallel  = flag.Int64("parallel", int64(runtime.NumCPU()), "maximum number of images to process in parallel")
+	parallel  = flag.Int("parallel", runtime.NumCPU(), "maximum number of images to process in parallel")
 	quiet     = flag.Bool("quiet", false, "if true, only errors will be printed")
 	outFolder = flag.String("outDir", "", "folder to store output files on, by default they will be stored besides the original file")
 
 	sizes = []Size{{480, defaultFormat}, {720, defaultFormat}, {1080, defaultFormat}}
+	jobs  = make(chan *Job)
 )
+
+type Job struct {
+	img      image.Image
+	size     Size
+	outPath  string
+	origPath string
+}
 
 const defaultFormat = "webp"
 
@@ -63,22 +69,25 @@ func main() {
 	}
 
 	wg := sync.WaitGroup{}
-	sem := semaphore.NewWeighted(*parallel)
 	start := time.Now()
 
-	for _, f := range files {
-		wg.Add(1)
-
-		go func(f string) {
-			sem.Acquire(context.Background(), 1)
-			defer sem.Release(1)
-			defer wg.Done()
-
-			if err := process(f); err != nil {
-				log.Fatalf("failed to resize image: %s", err)
+	for i := 0; i < *parallel; i++ {
+		go func() {
+			for job := range jobs {
+				if err := doJob(job); err != nil {
+					log.Fatalf("failed to process image: %s", err)
+				}
+				wg.Done()
 			}
-		}(f)
+		}()
 	}
+
+	for _, f := range files {
+		if err := enqueue(f, &wg); err != nil {
+			log.Fatalf("failed to resize image: %s", err)
+		}
+	}
+	close(jobs)
 
 	wg.Wait()
 
@@ -88,7 +97,7 @@ func main() {
 	}
 }
 
-func process(path string) error {
+func enqueue(path string, wg interface{ Add(int) }) error {
 	in, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
@@ -100,15 +109,8 @@ func process(path string) error {
 		return fmt.Errorf("decode image: %w", err)
 	}
 
-	w, h := img.Bounds().Dx(), img.Bounds().Dy()
-
 	for _, size := range sizes {
-		var newimg image.Image
 		var newpath string
-
-		if !*quiet {
-			log.Printf("resizing image %s with size %d encoded to %s", path, size.Height, size.Format)
-		}
 
 		var dir string
 		if *outFolder == "" {
@@ -119,33 +121,53 @@ func process(path string) error {
 		base := filepath.Join(dir, strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
 
 		if size.Height == 0 {
-			newimg = img
 			newpath = fmt.Sprintf("%s.%s", base, size.Format)
 		} else {
-			neww, newh := calcSize(w, h, size.Height)
-
-			newimg = imaging.Resize(img, neww, newh, imaging.Lanczos)
 			newpath = fmt.Sprintf("%s-%dp.%s", base, size.Height, size.Format)
 		}
 
-		out, err := os.Create(newpath)
-		if err != nil {
-			return fmt.Errorf("create file %s: %w", newpath, err)
+		wg.Add(1)
+		jobs <- &Job{
+			img:      img,
+			size:     size,
+			outPath:  newpath,
+			origPath: path,
 		}
-		defer out.Close() // Just in case
-
-		if err := encode(out, newimg, size.Format); err != nil {
-			return fmt.Errorf("encode file %s: %w", newpath, err)
-		}
-
-		out.Close()
 	}
 
 	return nil
 }
 
-func calcSize(w, h, newh int) (int, int) {
-	return int((float32(w) / float32(h)) * float32(newh)), newh
+func doJob(job *Job) error {
+	if !*quiet {
+		log.Printf("resizing image %s with size %d encoded to %s", job.origPath, job.size.Height, job.size.Format)
+	}
+
+	w, h := job.img.Bounds().Dx(), job.img.Bounds().Dy()
+
+	var newimg image.Image
+	if job.size.Height == 0 {
+		newimg = job.img
+	} else {
+		newimg = imaging.Resize(job.img, calcWidth(w, h, job.size.Height), job.size.Height, imaging.Lanczos)
+	}
+
+	out, err := os.Create(job.outPath)
+	if err != nil {
+		return fmt.Errorf("create file %s: %w", job.outPath, err)
+	}
+	defer out.Close() // Just in case
+
+	if err := encode(out, newimg, job.size.Format); err != nil {
+		return fmt.Errorf("encode file %s: %w", job.outPath, err)
+	}
+
+	out.Close()
+	return nil
+}
+
+func calcWidth(w, h, newh int) int {
+	return int((float32(w) / float32(h)) * float32(newh))
 }
 
 func encode(w io.Writer, img image.Image, format string) error {
