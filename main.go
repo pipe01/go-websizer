@@ -83,11 +83,17 @@ func main() {
 		}()
 	}
 
+	scanwg := sync.WaitGroup{}
 	for _, f := range files {
-		if err := enqueue(f, &wg); err != nil {
-			log.Fatalf("failed to resize image: %s", err)
-		}
+		scanwg.Add(1)
+		go func(f string) {
+			if err := enqueue(f, &wg); err != nil {
+				log.Fatalf("failed to resize image: %s", err)
+			}
+			scanwg.Done()
+		}(f)
 	}
+	scanwg.Wait()
 	close(jobs)
 
 	wg.Wait()
