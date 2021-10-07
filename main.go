@@ -26,6 +26,7 @@ var (
 	parallel  = flag.Int("parallel", runtime.NumCPU(), "maximum number of images to process in parallel")
 	quiet     = flag.Bool("quiet", false, "if true, only errors will be printed")
 	outFolder = flag.String("outDir", "", "folder to store output files on, by default they will be stored besides the original file")
+	ifNewer   = flag.Bool("ifNewer", false, "only encode an image if the output image doesn't exist or it's older than the original image")
 
 	sizes = []Size{{480, defaultFormat}, {720, defaultFormat}, {1080, defaultFormat}}
 	jobs  = make(chan *Job, 100)
@@ -139,6 +140,17 @@ func enqueue(path string, wg interface{ Add(int) }) error {
 }
 
 func doJob(job *Job) error {
+	outfi, err := os.Stat(job.outPath)
+	if err == nil {
+		srcfi, err := os.Stat(job.origPath)
+		if err == nil && outfi.ModTime().After(srcfi.ModTime()) {
+			if !*quiet {
+				log.Printf("skipping image %s", job.origPath)
+			}
+			return nil
+		}
+	}
+
 	if !*quiet {
 		log.Printf("resizing image %s with size %d encoded to %s", job.origPath, job.size.Height, job.size.Format)
 	}
