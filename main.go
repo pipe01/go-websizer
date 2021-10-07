@@ -146,14 +146,16 @@ func enqueue(path string, wg interface{ Add(int) }) error {
 }
 
 func doJob(job *Job) error {
-	outfi, err := os.Stat(job.outPath)
-	if err == nil {
-		srcfi, err := os.Stat(job.origPath)
-		if err == nil && outfi.ModTime().After(srcfi.ModTime()) {
-			if !*quiet {
-				log.Printf("skipping image %s", job.origPath)
+	if *ifNewer {
+		outfi, err := os.Stat(job.outPath)
+		if err == nil {
+			srcfi, err := os.Stat(job.origPath)
+			if err == nil && outfi.ModTime().After(srcfi.ModTime()) {
+				if !*quiet {
+					log.Printf("skipping image %s", job.origPath)
+				}
+				return nil
 			}
-			return nil
 		}
 	}
 
