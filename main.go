@@ -116,10 +116,7 @@ func enqueue(path string, wg interface{ Add(int) }) error {
 	}
 	defer in.Close()
 
-	img, _, err := image.Decode(in)
-	if err != nil {
-		return fmt.Errorf("decode image: %w", err)
-	}
+	var img image.Image
 
 	for _, size := range sizes {
 		var newpath string
@@ -138,6 +135,28 @@ func enqueue(path string, wg interface{ Add(int) }) error {
 			newpath = fmt.Sprintf("%s-%dp.%s", base, size.Height, size.Format)
 		}
 
+		// Check if the output image is up to date
+		if *ifNewer {
+			outfi, err := os.Stat(newpath)
+			if err == nil {
+				srcfi, err := os.Stat(path)
+				if err == nil && outfi.ModTime().After(srcfi.ModTime()) {
+					if !*quiet {
+						log.Printf("skipped image %s", newpath)
+					}
+					continue
+				}
+			}
+		}
+
+		// Lazy load image because we may not need to load it if all sizes are up to date
+		if img == nil {
+			img, _, err = image.Decode(in)
+			if err != nil {
+				return fmt.Errorf("decode image: %w", err)
+			}
+		}
+
 		wg.Add(1)
 		jobs <- &Job{
 			img:      img,
@@ -151,19 +170,6 @@ func enqueue(path string, wg interface{ Add(int) }) error {
 }
 
 func doJob(job *Job) error {
-	if *ifNewer {
-		outfi, err := os.Stat(job.outPath)
-		if err == nil {
-			srcfi, err := os.Stat(job.origPath)
-			if err == nil && outfi.ModTime().After(srcfi.ModTime()) {
-				if !*quiet {
-					log.Printf("skipping image %s", job.origPath)
-				}
-				return nil
-			}
-		}
-	}
-
 	if !*quiet {
 		log.Printf("resizing image %s with size %d encoded to %s", job.origPath, job.size.Height, job.size.Format)
 	}
